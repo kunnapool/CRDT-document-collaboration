@@ -159,8 +159,8 @@ def insert_at_uiIdx_rc(r, c, x):
         i += 1
 
     return prv_idx, lmprt_idx
-    
-        
+
+
 def arr_to_ui_str():
 
     # mutex.acquire()
@@ -183,17 +183,23 @@ def get_line_diff(last, curr):
     """assume insert for now"""
 
     # if there is a change
-    if len(last) != len(curr):
-
+    if len(last) < len(curr): # insertion
         # insert in middle of sentence
         for idx in range(len(last)):
             if curr[idx] != last[idx]:
-                return curr[idx]
+                return curr[idx], False
         # insert at end
-        return curr[-1]
+        return curr[-1], False
+    elif len(last) > len(curr): # deletion
+        # deletion in middle of sentence
+        for idx in range(len(curr)):
+            if curr[idx] != last[idx]:
+                return last[idx], True
+        # deletion at end
+        return last[-1], True
     else:
         # no change
-        return ""
+        return "", None
 
 def editor():
 
@@ -202,7 +208,7 @@ def editor():
         text.delete("1.0", "end")
         text.insert("1.0", arr_to_ui_str())
 
-        last_line = text.get("1.0", "end").strip("\n")
+        last_line = text.get("1.0", "end")
         
         return last_line
 
@@ -225,7 +231,9 @@ def editor():
 
         # get current index
         ui_cursor_row, ui_cursor_col = [int(x) for x in text.index("insert").split(".")]
-        curr_line = text.get("{}.0".format(ui_cursor_row), "end").strip("\n")
+        curr_line = text.get("{}.0".format(ui_cursor_row), "end")
+
+        print("LAST CHAR IS: ", curr_line[-1])
 
         
         # by rpc
@@ -236,12 +244,16 @@ def editor():
 
             continue
         
-        line_diff = get_line_diff(last_line, curr_line)
+        line_diff, is_delted = get_line_diff(last_line, curr_line)
 
         # changed in editor
         if curr_line != last_line:
-            prv_lmprt, curr_lmprt = insert_at_uiIdx_rc(ui_cursor_row, ui_cursor_col, line_diff)
-            print(prv_lmprt, curr_lmprt)
+            
+            if not is_delted:
+                prv_lmprt, curr_lmprt = insert_at_uiIdx_rc(ui_cursor_row, ui_cursor_col, line_diff)
+            else:
+                # prv_lmprt, curr_lmprt = del_at_uiIdx_rc(ui_cursor_row, ui_cursor_col, line_diff)
+                pass
 
             # IorD, val, idx, after = op
             send_ops(HOST_ADDR, (("i", line_diff, curr_lmprt, prv_lmprt)))
@@ -252,7 +264,9 @@ def editor():
             curr_line = init_editor()
             last_line = curr_line
 
-        print("ARR REP: ", arr_to_ui_str())
+            text.mark_set("insert", "{}.{}".format(ui_cursor_row, ui_cursor_col))
+
+        # print("ARR REP: ", arr_to_ui_str())
 
         last_line = curr_line
         time.sleep(0.1)
