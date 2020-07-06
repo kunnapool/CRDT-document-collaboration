@@ -71,21 +71,21 @@ class RpcServer(threading.Thread):
     def recv_ops(self, sender, IorD, val, idx, after):
         print("Sender sent {} {} at idx {} after {}".format(IorD, val, idx, after))
 
-        global CHANGED
-        insert_after(val, idx, after)
-
         mutex.acquire()
-        text.delete("1.0", "end")
-        text.insert("1.0", arr_to_ui_str())
-
+        global ALL_DATA
+        global CHANGED
+        
+        insert_after(val, idx, after)
         CHANGED = True
 
         mutex.release()
+
         return True
 
 
 def send_ops(host_addr, op):
 
+    print("Sending op: ", op)
     IorD, val, idx, after = op
     # contact the other host using this
     proxy_addr = "http://{addr}:{port}/".format(addr=host_addr[0], port=host_addr[1])
@@ -95,31 +95,31 @@ def send_ops(host_addr, op):
 
 def insert_after(val, idx, after):
     
-    mutex.acquire()
-    
     global ALL_DATA
 
-    ALL_DATA.append( (val, idx, False) )
+    for i in range(len(ALL_DATA)):
 
-    # for i in range(len(ALL_DATA)):
+        v, ts, _ = ALL_DATA[i]
 
-        # v, ts, _ = ALL_DATA[i]
+        if ts == after:
+            # shift right
+            ALL_DATA.append( () ) # empty
 
-        # if ts > after and idx < ts:
-        #     # shift right
-        #     ALL_DATA.append( () ) # empty
+            j = len(ALL_DATA)
+            while j -1 != i: # shift everything right
+                ALL_DATA[j-1] = ALL_DATA[j-2]
+                j -= 1
 
-        #     j = len(ALL_DATA)
-        #     while j -1 != i: # shift everything right
-        #         ALL_DATA[j-1] = ALL_DATA[j-2]
-        #         j -= 1
-            
-        #     ALL_DATA[i] = (val, idx, False)
+            ALL_DATA[i + 1] = (val, idx, False)
 
-    mutex.release()
+            break
 
 
 def insert_at_uiIdx_rc(r, c, x):
+    """
+    Insert val 'x' in the array at position p that corresponds
+    to UI editor index (r, c)
+    """
 
     global ALL_DATA
     global LAMPORT_IDX
@@ -131,7 +131,7 @@ def insert_at_uiIdx_rc(r, c, x):
     prv_idx = ""
     while True:
 
-        if row == r - 1 and col == c:
+        if row == r - 1 and col == c - 1:
 
             ALL_DATA.append( () ) # empty
 
@@ -173,13 +173,38 @@ def arr_to_ui_str():
         val, _, isDel = ALL_DATA[i]
 
         if isDel == False:
-            s.append(val)
+            s.append(str(val))
 
         i += 1
     # mutex.release()
     return ''.join(s)
 
+def get_line_diff(last, curr):
+    """assume insert for now"""
+
+    # if there is a change
+    if len(last) != len(curr):
+
+        # insert in middle of sentence
+        for idx in range(len(last)):
+            if curr[idx] != last[idx]:
+                return curr[idx]
+        # insert at end
+        return curr[-1]
+    else:
+        # no change
+        return ""
+
 def editor():
+
+    def init_editor():
+        # (re)initialize text editor window
+        text.delete("1.0", "end")
+        text.insert("1.0", arr_to_ui_str())
+
+        last_line = text.get("1.0", "end").strip("\n")
+        
+        return last_line
 
     global LAMPORT_IDX
     global ALL_DATA
@@ -192,49 +217,44 @@ def editor():
     rpc = RpcServer()
     rpc.start()
 
-    last_line =""
+    last_line = init_editor()
     last_r = ""
     last_c = ""
+
     while True:
-        CHANGED = False
-        mutex.acquire()
-        got_idx = (text.index(INSERT)).split(".")
-        r, c = int(got_idx[0]), int(got_idx[1])
-        curr_line = text.get("{}.0".format(r), "end")
+
+        # get current index
+        ui_cursor_row, ui_cursor_col = [int(x) for x in text.index("insert").split(".")]
+        curr_line = text.get("{}.0".format(ui_cursor_row), "end").strip("\n")
+
         
+        # by rpc
         if CHANGED:
+            CHANGED = False
+            curr_line = init_editor()
             last_line = curr_line
+
             continue
+        
+        line_diff = get_line_diff(last_line, curr_line)
 
-        if r != last_r: # moved to a diff line
-            last_r = r
+        # changed in editor
+        if curr_line != last_line:
+            prv_lmprt, curr_lmprt = insert_at_uiIdx_rc(ui_cursor_row, ui_cursor_col, line_diff)
+            print(prv_lmprt, curr_lmprt)
+
+            # IorD, val, idx, after = op
+            send_ops(HOST_ADDR, (("i", line_diff, curr_lmprt, prv_lmprt)))
+
+            # print("CHANGED")
+
+            # re-init editor with arr contents
+            curr_line = init_editor()
             last_line = curr_line
-        elif CHANGED == False and last_line != curr_line: # insertion/deletion
-            print(CHANGED, last_line, curr_line)
-            traverse_idx = min(len(last_line), len(curr_line))
 
-            # go through both lines and find diff
-            ii = 0
-            while ii < traverse_idx:
-                if last_line[ii] != curr_line[ii]:
-                    if len(curr_line) < len(last_line): # deletion
-
-                        print("deleted {} - {}".format(last_line[ii], get_index()))
-                        ops_buffer.push_op_to_buffer(("d", ii, last_line[ii]))
-                        send_ops(HOST_ADDR, ("d", "{}.{}".format(r, c), last_line[ii]))
-
-                    else: # insertion
-
-                        prv_idx, cur_idx = insert_at_uiIdx_rc(r, c - 1, curr_line[ii] )
-                        send_ops(HOST_ADDR, ("i", curr_line[ii], cur_idx, prv_idx))
-                        # last_line = curr_line
-
-                    break
-
-                ii += 1
-            last_line = curr_line
         print("ARR REP: ", arr_to_ui_str())
-        mutex.release()
+
+        last_line = curr_line
         time.sleep(0.1)
 
 e = threading.Thread(target=editor)
