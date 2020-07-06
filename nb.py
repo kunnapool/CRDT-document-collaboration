@@ -75,7 +75,11 @@ class RpcServer(threading.Thread):
         global ALL_DATA
         global CHANGED
         
-        insert_after(val, idx, after)
+        if IorD == "i":
+            insert_after(val, idx, after)
+        else:
+            del_idx(idx)
+
         CHANGED = True
 
         mutex.release()
@@ -103,14 +107,28 @@ def insert_after(val, idx, after):
 
         if ts == after:
             # shift right
-            ALL_DATA.append( () ) # empty
+            ALL_DATA.append( [] ) # empty
 
             j = len(ALL_DATA)
             while j -1 != i: # shift everything right
                 ALL_DATA[j-1] = ALL_DATA[j-2]
                 j -= 1
 
-            ALL_DATA[i + 1] = (val, idx, False)
+            ALL_DATA[i + 1] = [val, idx, False]
+
+            break
+
+def del_idx(idx):
+    
+    global ALL_DATA
+
+    for i in range(len(ALL_DATA)):
+
+        _, ts, _ = ALL_DATA[i]
+
+        if ts == idx:
+
+            ALL_DATA[i][2] = True # mark as deleted
 
             break
 
@@ -133,7 +151,7 @@ def insert_at_uiIdx_rc(r, c, x):
 
         if row == r - 1 and col == c - 1:
 
-            ALL_DATA.append( () ) # empty
+            ALL_DATA.append( [] ) # empty
 
             j = len(ALL_DATA)
             while j -1 != i: # shift everything right
@@ -142,7 +160,7 @@ def insert_at_uiIdx_rc(r, c, x):
             
             lmprt_idx = get_index()
 
-            ALL_DATA[i] = (x, lmprt_idx, False)
+            ALL_DATA[i] = [x, lmprt_idx, False]
             _, prv_idx, _ = ALL_DATA[i-1]
             LAMPORT_IDX += 1
 
@@ -160,6 +178,37 @@ def insert_at_uiIdx_rc(r, c, x):
 
     return prv_idx, lmprt_idx
 
+def del_at_uiIdx_rc(r, c):
+
+    global ALL_DATA
+
+    row = 0
+    col = 0
+    i = 0
+    lmprt_idx = ""
+    prv_idx = ""
+
+    while True:
+
+        if row == r - 1 and col == c - 1:
+
+            ALL_DATA[i][2] = True # mark as deleted
+            lmprt_idx = ALL_DATA[i][1]
+            prv_idx = ALL_DATA[i-1][1]
+
+            break
+        
+        val, ts, isDel = ALL_DATA[i]
+
+        if val == '\n':
+            row += 1
+            col = 0
+        elif not isDel:
+            col += 1
+        
+        i += 1
+
+    return prv_idx, lmprt_idx
 
 def arr_to_ui_str():
 
@@ -208,7 +257,7 @@ def editor():
         text.delete("1.0", "end")
         text.insert("1.0", arr_to_ui_str())
 
-        last_line = text.get("1.0", "end")
+        last_line = text.get("1.0", "end").strip("\n")
         
         return last_line
 
@@ -231,9 +280,10 @@ def editor():
 
         # get current index
         ui_cursor_row, ui_cursor_col = [int(x) for x in text.index("insert").split(".")]
-        curr_line = text.get("{}.0".format(ui_cursor_row), "end")
+        curr_line = text.get("{}.0".format(ui_cursor_row), "end").strip("\n")
 
-        print("LAST CHAR IS: ", curr_line[-1])
+        # if last_line[-1] == '\n':
+        #     print("YAASSSSS")
 
         
         # by rpc
@@ -248,15 +298,18 @@ def editor():
 
         # changed in editor
         if curr_line != last_line:
-            
+            IorD = ""
             if not is_delted:
+                IorD = "i"
                 prv_lmprt, curr_lmprt = insert_at_uiIdx_rc(ui_cursor_row, ui_cursor_col, line_diff)
             else:
-                # prv_lmprt, curr_lmprt = del_at_uiIdx_rc(ui_cursor_row, ui_cursor_col, line_diff)
+                IorD = "d"
+                prv_lmprt, curr_lmprt = del_at_uiIdx_rc(ui_cursor_row, ui_cursor_col + 1)
+                print(prv_lmprt, curr_lmprt)
                 pass
 
             # IorD, val, idx, after = op
-            send_ops(HOST_ADDR, (("i", line_diff, curr_lmprt, prv_lmprt)))
+            send_ops(HOST_ADDR, ((IorD, line_diff, curr_lmprt, prv_lmprt)))
 
             # print("CHANGED")
 
@@ -264,9 +317,10 @@ def editor():
             curr_line = init_editor()
             last_line = curr_line
 
+            
             text.mark_set("insert", "{}.{}".format(ui_cursor_row, ui_cursor_col))
 
-        # print("ARR REP: ", arr_to_ui_str())
+        # print(ALL_DATA)
 
         last_line = curr_line
         time.sleep(0.1)
