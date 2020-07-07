@@ -5,10 +5,29 @@ import sys
 from xmlrpc.server import SimpleXMLRPCServer
 import xmlrpc.client
 
+INTERNET = True
+
+def myClick():
+    global INTERNET
+    global ops_buffer
+
+    INTERNET = not INTERNET
+    print("Button Clicked!!!", INTERNET)
+
+    while True:
+        op = ops_buffer.pop_op()
+
+        if op == -1:
+            break
+
+        # IorD, val, idx, after = op
+        send_ops(HOST_ADDR, op)
 
 root = Tk()
 text = Text(root)
+button = Button(root, text="Toggle Internet!", command = myClick, fg="blue", bg="red")
 text.insert("0.0", "H")
+button.pack()
 text.pack()
 
 MY_ADDR = ("localhost", int(sys.argv[1]))
@@ -69,12 +88,20 @@ class RpcServer(threading.Thread):
         self.server.serve_forever()
 
     def recv_ops(self, sender, IorD, val, idx, after):
+
+        def update_lamport(incoming_lmprt):
+            global LAMPORT_IDX
+
+            LAMPORT_IDX = max(LAMPORT_IDX, int(incoming_lmprt[0]))
+
         print("Sender sent {} {} at idx {} after {}".format(IorD, val, idx, after))
 
         mutex.acquire()
         global ALL_DATA
         global CHANGED
         
+        update_lamport(idx)
+
         if IorD == "i":
             insert_after(val, idx, after)
         else:
@@ -106,6 +133,14 @@ def insert_after(val, idx, after):
         v, ts, _ = ALL_DATA[i]
 
         if ts == after:
+            print("\n\n", idx, ALL_DATA)
+            moved = False
+            while i + 1 < len(ALL_DATA) and idx < ALL_DATA[i+1][1]:
+                print("{}<{}".format(idx, ALL_DATA[i+1][1]))
+                i += 1
+                moved = True
+
+            print("\n\n")
             # shift right
             ALL_DATA.append( [] ) # empty
 
@@ -250,6 +285,8 @@ def get_line_diff(last, curr):
         # no change
         return "", None
 
+ops_buffer = OpsBuffer()
+
 def editor():
 
     def init_editor():
@@ -264,11 +301,11 @@ def editor():
     global LAMPORT_IDX
     global ALL_DATA
     global CHANGED
+    global INTERNET
 
     ALL_DATA.append( ("H", "{}{}".format(LAMPORT_IDX, 'a'), False) ) # initialize common array
     LAMPORT_IDX += 1
 
-    ops_buffer = OpsBuffer()
     rpc = RpcServer()
     rpc.start()
 
@@ -281,10 +318,6 @@ def editor():
         # get current index
         ui_cursor_row, ui_cursor_col = [int(x) for x in text.index("insert").split(".")]
         curr_line = text.get("{}.0".format(ui_cursor_row), "end").strip("\n")
-
-        # if last_line[-1] == '\n':
-        #     print("YAASSSSS")
-
         
         # by rpc
         if CHANGED:
@@ -307,9 +340,13 @@ def editor():
                 prv_lmprt, curr_lmprt = del_at_uiIdx_rc(ui_cursor_row, ui_cursor_col + 1)
                 print(prv_lmprt, curr_lmprt)
                 pass
+            
+            if INTERNET:
+                # IorD, val, idx, after = op
+                send_ops(HOST_ADDR, (IorD, line_diff, curr_lmprt, prv_lmprt))
+            else:
+                ops_buffer.push_op_to_buffer((IorD, line_diff, curr_lmprt, prv_lmprt))
 
-            # IorD, val, idx, after = op
-            send_ops(HOST_ADDR, ((IorD, line_diff, curr_lmprt, prv_lmprt)))
 
             # print("CHANGED")
 
@@ -320,7 +357,7 @@ def editor():
             
             text.mark_set("insert", "{}.{}".format(ui_cursor_row, ui_cursor_col))
 
-        # print(ALL_DATA)
+        # print(ops_buffer.ops_buffer)
 
         last_line = curr_line
         time.sleep(0.1)
