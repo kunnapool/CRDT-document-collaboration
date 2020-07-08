@@ -26,7 +26,7 @@ def myClick():
 root = Tk()
 text = Text(root)
 button = Button(root, text="Toggle Internet!", command = myClick, fg="blue", bg="red")
-text.insert("0.0", "H")
+text.insert("1.0", "X")
 button.pack()
 text.pack()
 
@@ -92,7 +92,8 @@ class RpcServer(threading.Thread):
         def update_lamport(incoming_lmprt):
             global LAMPORT_IDX
 
-            LAMPORT_IDX = max(LAMPORT_IDX, int(incoming_lmprt[0]))
+            LAMPORT_IDX = max(LAMPORT_IDX, int(incoming_lmprt[:-1]))
+            LAMPORT_IDX += 1
 
         print("Sender sent {} {} at idx {} after {}".format(IorD, val, idx, after))
 
@@ -125,7 +126,18 @@ def send_ops(host_addr, op):
     resp = client_proxy.recv_ops(MY_ADDR, IorD, val, idx, after)
 
 def insert_after(val, idx, after):
-    
+
+    def a_lessThan_b(a, b):
+        num_a, owner_a = int(a[:-1]), a[-1]
+        num_b, owner_b = int(b[:-1]), b[-1]
+
+        if num_a < num_b:
+            return True
+        elif num_b < num_a:
+            return False
+        elif num_a == num_b:
+            return owner_a < owner_b
+
     global ALL_DATA
 
     for i in range(len(ALL_DATA)):
@@ -135,7 +147,7 @@ def insert_after(val, idx, after):
         if ts == after:
             print("\n\n", idx, ALL_DATA)
             moved = False
-            while i + 1 < len(ALL_DATA) and idx < ALL_DATA[i+1][1]:
+            while i + 1 < len(ALL_DATA) and a_lessThan_b(idx, ALL_DATA[i+1][1]):
                 print("{}<{}".format(idx, ALL_DATA[i+1][1]))
                 i += 1
                 moved = True
@@ -184,7 +196,7 @@ def insert_at_uiIdx_rc(r, c, x):
     prv_idx = ""
     while True:
 
-        if row == r - 1 and col == c - 1:
+        if row == r - 1 and col == c - 1: # UI index == arr index
 
             ALL_DATA.append( [] ) # empty
 
@@ -192,7 +204,7 @@ def insert_at_uiIdx_rc(r, c, x):
             while j -1 != i: # shift everything right
                 ALL_DATA[j-1] = ALL_DATA[j-2]
                 j -= 1
-            
+    
             lmprt_idx = get_index()
 
             ALL_DATA[i] = [x, lmprt_idx, False]
@@ -208,7 +220,7 @@ def insert_at_uiIdx_rc(r, c, x):
             col = 0
         elif not isDel:
             col += 1
-        
+
         i += 1
 
     return prv_idx, lmprt_idx
@@ -232,7 +244,7 @@ def del_at_uiIdx_rc(r, c):
             prv_idx = ALL_DATA[i-1][1]
 
             break
-        
+
         val, ts, isDel = ALL_DATA[i]
 
         if val == '\n':
@@ -240,7 +252,7 @@ def del_at_uiIdx_rc(r, c):
             col = 0
         elif not isDel:
             col += 1
-        
+
         i += 1
 
     return prv_idx, lmprt_idx
@@ -303,7 +315,7 @@ def editor():
     global CHANGED
     global INTERNET
 
-    ALL_DATA.append( ("H", "{}{}".format(LAMPORT_IDX, 'a'), False) ) # initialize common array
+    ALL_DATA.append( ["X", "{}{}".format(LAMPORT_IDX, 'x'), False] ) # initialize common array
     LAMPORT_IDX += 1
 
     rpc = RpcServer()
@@ -338,8 +350,7 @@ def editor():
             else:
                 IorD = "d"
                 prv_lmprt, curr_lmprt = del_at_uiIdx_rc(ui_cursor_row, ui_cursor_col + 1)
-                print(prv_lmprt, curr_lmprt)
-                pass
+                print(ui_cursor_col, ui_cursor_col)
             
             if INTERNET:
                 # IorD, val, idx, after = op
@@ -360,7 +371,7 @@ def editor():
         # print(ops_buffer.ops_buffer)
 
         last_line = curr_line
-        time.sleep(0.1)
+        time.sleep(0.05)
 
 e = threading.Thread(target=editor)
 e.start()
