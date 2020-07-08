@@ -208,8 +208,8 @@ def insert_at_uiIdx_rc(r, c, x):
             lmprt_idx = get_index()
 
             ALL_DATA[i] = [x, lmprt_idx, False]
-            _, prv_idx, _ = ALL_DATA[i-1]
             LAMPORT_IDX += 1
+            _, prv_idx, _ = ALL_DATA[i-1]
 
             break
         
@@ -371,7 +371,7 @@ def editor():
         # print(ops_buffer.ops_buffer)
 
         last_line = curr_line
-        time.sleep(0.05)
+        time.sleep(0.025)
 
 e = threading.Thread(target=editor)
 e.start()
